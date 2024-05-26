@@ -16,6 +16,7 @@ from functools import partial
 import numpy as np
 import pandas as pd
 import torch
+import torch_sdaa
 
 from timm.data import create_dataset, create_loader, resolve_data_config, ImageNetInfo, infer_imagenet_subset
 from timm.layers import apply_test_time_pool
@@ -30,7 +31,7 @@ except ImportError:
 
 has_native_amp = False
 try:
-    if getattr(torch.cuda.amp, 'autocast') is not None:
+    if getattr(torch.sdaa.amp, 'autocast') is not None:
         has_native_amp = True
 except AttributeError:
     pass
@@ -105,7 +106,7 @@ parser.add_argument('--test-pool', dest='test_pool', action='store_true',
                     help='enable test time pool')
 parser.add_argument('--channels-last', action='store_true', default=False,
                     help='Use channels_last memory layout')
-parser.add_argument('--device', default='cuda', type=str,
+parser.add_argument('--device', default='sdaa', type=str,
                     help="Device (accelerator) to use.")
 parser.add_argument('--amp', action='store_true', default=False,
                     help='use Native AMP for mixed precision training')
@@ -158,10 +159,6 @@ def main():
     args = parser.parse_args()
     # might as well try to do something useful...
     args.pretrained = args.pretrained or not args.checkpoint
-
-    if torch.cuda.is_available():
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.benchmark = True
 
     device = torch.device(args.device)
 

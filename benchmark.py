@@ -15,6 +15,7 @@ from contextlib import suppress
 from functools import partial
 
 import torch
+import torch_sdaa
 import torch.nn as nn
 import torch.nn.parallel
 
@@ -34,7 +35,7 @@ except ImportError:
 
 has_native_amp = False
 try:
-    if getattr(torch.cuda.amp, 'autocast') is not None:
+    if getattr(torch.sdaa.amp, 'autocast') is not None:
         has_native_amp = True
 except AttributeError:
     pass
@@ -60,9 +61,6 @@ except ImportError as e:
 
 has_compile = hasattr(torch, 'compile')
 
-if torch.cuda.is_available():
-    torch.backends.cuda.matmul.allow_tf32 = True
-    torch.backends.cudnn.benchmark = True
 _logger = logging.getLogger('validate')
 
 
@@ -85,7 +83,7 @@ parser.add_argument('--num-warm-iter', default=10, type=int,
                     help='Number of warmup iterations (default: 10)')
 parser.add_argument('--num-bench-iter', default=40, type=int,
                     help='Number of benchmark iterations (default: 40)')
-parser.add_argument('--device', default='cuda', type=str,
+parser.add_argument('--device', default='sdaa', type=str,
                     help="device to run benchmark on")
 
 # common inference / train args
@@ -164,7 +162,7 @@ def timestamp(sync=False):
 
 def cuda_timestamp(sync=False, device=None):
     if sync:
-        torch.cuda.synchronize(device=device)
+        torch.sdaa.synchronize(device)
     return time.perf_counter()
 
 
@@ -221,7 +219,7 @@ class BenchmarkRunner:
             self,
             model_name,
             detail=False,
-            device='cuda',
+            device='sdaa',
             torchscript=False,
             torchcompile=None,
             aot_autograd=False,
@@ -239,7 +237,7 @@ class BenchmarkRunner:
         self.amp_dtype, self.model_dtype, self.data_dtype = resolve_precision(precision)
         self.channels_last = kwargs.pop('channels_last', False)
         if self.amp_dtype is not None:
-            self.amp_autocast = partial(torch.cuda.amp.autocast, dtype=self.amp_dtype)
+            self.amp_autocast = partial(torch.sdaa.amp.autocast, dtype=self.amp_dtype)
         else:
             self.amp_autocast = suppress
 
@@ -289,7 +287,7 @@ class BenchmarkRunner:
         self.num_warm_iter = num_warm_iter
         self.num_bench_iter = num_bench_iter
         self.log_freq = num_bench_iter // 5
-        if 'cuda' in self.device:
+        if 'sdaa' in self.device:
             self.time_fn = partial(cuda_timestamp, device=self.device)
         else:
             self.time_fn = timestamp
@@ -306,7 +304,7 @@ class InferenceBenchmarkRunner(BenchmarkRunner):
     def __init__(
             self,
             model_name,
-            device='cuda',
+            device='sdaa',
             torchscript=False,
             **kwargs
     ):
@@ -381,7 +379,7 @@ class TrainBenchmarkRunner(BenchmarkRunner):
     def __init__(
             self,
             model_name,
-            device='cuda',
+            device='sdaa',
             torchscript=False,
             **kwargs
     ):
@@ -504,7 +502,7 @@ class TrainBenchmarkRunner(BenchmarkRunner):
 
 class ProfileRunner(BenchmarkRunner):
 
-    def __init__(self, model_name, device='cuda', profiler='', **kwargs):
+    def __init__(self, model_name, device='sdaa', profiler='', **kwargs):
         super().__init__(model_name=model_name, device=device, **kwargs)
         if not profiler:
             if has_deepspeed_profiling:
@@ -554,7 +552,7 @@ def _try_run(
     error_str = 'Unknown'
     while batch_size:
         try:
-            torch.cuda.empty_cache()
+            torch.sdaa.empty_cache()
             bench = bench_fn(model_name=model_name, batch_size=batch_size, **bench_kwargs)
             results = bench.run()
             return results

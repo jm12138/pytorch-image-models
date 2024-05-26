@@ -19,6 +19,7 @@ from contextlib import suppress
 from functools import partial
 
 import torch
+import torch_sdaa
 import torch.nn as nn
 import torch.nn.parallel
 
@@ -36,7 +37,7 @@ except ImportError:
 
 has_native_amp = False
 try:
-    if getattr(torch.cuda.amp, 'autocast') is not None:
+    if getattr(torch.sdaa.amp, 'autocast') is not None:
         has_native_amp = True
 except AttributeError:
     pass
@@ -120,7 +121,7 @@ parser.add_argument('--pin-mem', action='store_true', default=False,
                     help='Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.')
 parser.add_argument('--channels-last', action='store_true', default=False,
                     help='Use channels_last memory layout')
-parser.add_argument('--device', default='cuda', type=str,
+parser.add_argument('--device', default='sdaa', type=str,
                     help="Device (accelerator) to use.")
 parser.add_argument('--amp', action='store_true', default=False,
                     help='use NVIDIA Apex AMP or Native AMP for mixed precision training')
@@ -165,10 +166,6 @@ def validate(args):
     # might as well try to validate something
     args.pretrained = args.pretrained or not args.checkpoint
     args.prefetcher = not args.no_prefetcher
-
-    if torch.cuda.is_available():
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.benchmark = True
 
     device = torch.device(args.device)
 
@@ -394,8 +391,8 @@ def _try_run(args, initial_batch_size):
     while batch_size:
         args.batch_size = batch_size * args.num_gpu  # multiply by num-gpu for DataParallel case
         try:
-            if torch.cuda.is_available() and 'cuda' in args.device:
-                torch.cuda.empty_cache()
+            if torch.sdaa.is_available() and 'sdaa' in args.device:
+                torch.sdaa.empty_cache()
             results = validate(args)
             return results
         except RuntimeError as e:

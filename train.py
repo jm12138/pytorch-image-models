@@ -9,7 +9,7 @@ and training result improvements over the usual PyTorch example scripts. Repurpo
 This script was started from an early version of the PyTorch ImageNet example
 (https://github.com/pytorch/examples/tree/master/imagenet)
 
-NVIDIA CUDA specific speedups adopted from NVIDIA Apex examples
+NVIDIA SDAA specific speedups adopted from NVIDIA Apex examples
 (https://github.com/NVIDIA/apex/tree/master/examples/imagenet)
 
 Hacked together by / Copyright 2020 Ross Wightman (https://github.com/rwightman)
@@ -26,6 +26,7 @@ from datetime import datetime
 from functools import partial
 
 import torch
+import torch_sdaa
 import torch.nn as nn
 import torchvision.utils
 import yaml
@@ -50,7 +51,7 @@ except ImportError:
 
 has_native_amp = False
 try:
-    if getattr(torch.cuda.amp, 'autocast') is not None:
+    if getattr(torch.sdaa.amp, 'autocast') is not None:
         has_native_amp = True
 except AttributeError:
     pass
@@ -171,7 +172,7 @@ scripting_group.add_argument('--torchcompile', nargs='?', type=str, default=None
 
 # Device & distributed
 group = parser.add_argument_group('Device parameters')
-group.add_argument('--device', default='cuda', type=str,
+group.add_argument('--device', default='sdaa', type=str,
                     help="Device (accelerator) to use.")
 group.add_argument('--amp', action='store_true', default=False,
                    help='use NVIDIA Apex AMP or Native AMP for mixed precision training')
@@ -182,7 +183,7 @@ group.add_argument('--amp-impl', default='native', type=str,
 group.add_argument('--no-ddp-bb', action='store_true', default=False,
                    help='Force broadcast buffers for native DDP to off.')
 group.add_argument('--synchronize-step', action='store_true', default=False,
-                   help='torch.cuda.synchronize() end of each step')
+                   help='torch.sdaa.synchronize() end of each step')
 group.add_argument("--local_rank", default=0, type=int)
 parser.add_argument('--device-modules', default=None, type=str, nargs='+',
                     help="Python imports for device backend modules.")
@@ -416,9 +417,11 @@ def main():
         for module in args.device_modules:
             importlib.import_module(module)
 
-    if torch.cuda.is_available():
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.benchmark = True
+    if torch.sdaa.is_available():
+        local_rank = int(os.environ.get("LOCAL_RANK", -1))
+        device = torch.device(f"sdaa:{local_rank}")
+        torch.sdaa.set_device(device)
+        args.dist_backend = 'tccl'
 
     args.prefetcher = not args.no_prefetcher
     args.grad_accum_steps = max(1, args.grad_accum_steps)
@@ -564,7 +567,7 @@ def main():
     amp_autocast = suppress  # do nothing
     loss_scaler = None
     if use_amp == 'apex':
-        assert device.type == 'cuda'
+        assert device.type == 'sdaa'
         model, optimizer = amp.initialize(model, optimizer, opt_level='O1')
         loss_scaler = ApexScaler()
         if utils.is_primary(args):
@@ -573,10 +576,10 @@ def main():
         try:
             amp_autocast = partial(torch.autocast, device_type=device.type, dtype=amp_dtype)
         except (AttributeError, TypeError):
-            # fallback to CUDA only AMP for PyTorch < 1.10
-            assert device.type == 'cuda'
-            amp_autocast = torch.cuda.amp.autocast
-        if device.type == 'cuda' and amp_dtype == torch.float16:
+            # fallback to SDAA only AMP for PyTorch < 1.10
+            assert device.type == 'sdaa'
+            amp_autocast = torch.sdaa.amp.autocast
+        if device.type == 'sdaa' and amp_dtype == torch.float16:
             # loss scaler only used for float16 (half) dtype, bfloat16 does not need it
             loss_scaler = NativeScaler()
         if utils.is_primary(args):
@@ -599,7 +602,7 @@ def main():
     # setup exponential moving average of model weights, SWA could be used here too
     model_ema = None
     if args.model_ema:
-        # Important to create EMA model after cuda(), DP wrapper, and AMP but before DDP wrapper
+        # Important to create EMA model after sdaa(), DP wrapper, and AMP but before DDP wrapper
         model_ema = utils.ModelEmaV3(
             model,
             decay=args.model_ema_decay,
@@ -950,7 +953,7 @@ def train_one_epoch(
         optimizer,
         loss_fn,
         args,
-        device=torch.device('cuda'),
+        device=torch.device('sdaa'),
         lr_scheduler=None,
         saver=None,
         output_dir=None,
@@ -1052,8 +1055,8 @@ def train_one_epoch(
         if model_ema is not None:
             model_ema.update(model, step=num_updates)
 
-        if args.synchronize_step and device.type == 'cuda':
-            torch.cuda.synchronize()
+        if args.synchronize_step and device.type == 'sdaa':
+            torch.sdaa.synchronize()
         time_now = time.time()
         update_time_m.update(time.time() - update_start_time)
         update_start_time = time_now
@@ -1108,7 +1111,7 @@ def validate(
         loader,
         loss_fn,
         args,
-        device=torch.device('cuda'),
+        device=torch.device('sdaa'),
         amp_autocast=suppress,
         log_suffix=''
 ):
@@ -1151,8 +1154,8 @@ def validate(
             else:
                 reduced_loss = loss.data
 
-            if device.type == 'cuda':
-                torch.cuda.synchronize()
+            if device.type == 'sdaa':
+                torch.sdaa.synchronize()
 
             losses_m.update(reduced_loss.item(), input.size(0))
             top1_m.update(acc1.item(), output.size(0))
