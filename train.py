@@ -885,7 +885,7 @@ def main():
                     validate_loss_fn,
                     args,
                     device=device,
-                    amp_autocast=suppress, # SDAA eval mode is not support AMP.
+                    amp_autocast=amp_autocast,
                 )
 
                 if model_ema is not None and not args.model_ema_force_cpu:
@@ -898,7 +898,7 @@ def main():
                         validate_loss_fn,
                         args,
                         device=device,
-                        amp_autocast=suppress, # SDAA eval mode is not support AMP.
+                        amp_autocast=amp_autocast,
                         log_suffix=' (EMA)',
                     )
                     eval_metrics = ema_eval_metrics
